@@ -1,34 +1,40 @@
 {
-	"name":         "nld",
-	"description":  "The Node linker",
-	"author":       "Bastien Clément <galedric@galedric.com>",
-	
-	"version":      "0.5.0",
-	"licenses": [{
-		"type":  "MIT",
-		"url":   "http://github.com/galedric/nld/raw/master/LICENSE"
-	}],
-	
-	"main": "./lib/nld.js",
-	
-	"bin": {
-		"nld": "./bin/nld"
-	},
-
-	"dependencies": {
-		"optimist":   "0.3.4",
-		"uglify-js":  "1.2.6"
-    },
-    
-    "devDependencies": {
-		"optimist":   "*",
-		"uglify-js":  "*"
-	},
-    
-    "homepage": "https://github.com/galedric/nld",
-    
-    "repository": {
-		"type": "git",
-		"url":  "git://github.com/galedric/nld.git"
-	}
+  "name": "nld",
+  "description": "The Node linker",
+  "author": {
+    "name": "Bastien Clément",
+    "email": "galedric@galedric.com"
+  },
+  "version": "0.5.0",
+  "licenses": [
+    {
+      "type": "MIT",
+      "url": "http://github.com/galedric/nld/raw/master/LICENSE"
+    }
+  ],
+  "main": "./lib/nld.js",
+  "bin": {
+    "nld": "./bin/nld"
+  },
+  "dependencies": {
+    "optimist": "0.3.4",
+    "uglify-js": ">= 2.0.0"
+  },
+  "devDependencies": {
+    "optimist": "*",
+    "uglify-js": "*"
+  },
+  "homepage": "https://github.com/galedric/nld",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/galedric/nld.git"
+  },
+  "readme": "\nnld - The Node linker\n=====================\n\nLink files together, compress javascript and produce a single bundle file.\n\n## README Contents\n\n - [Installation](#a1)\n - [Command line usage](#a2)\n    - [Arguments](#a2-1)\n    - [Symbols naming and paths-management](#a2-2)\n    - [Options](#a2-3)\n - [Additional operations](#a3)\n    - [Dump](#a3-2)\n    - [Edit / Convert](#a3-2)\n - [Using the bundle](#a4)\n    - [Inside the bundle](#a4-1)\n    - [Standalone bundle](#a4-2)\n    - [Included bundle](#a4-3)\n    - [Adapters](#a4-4)\n - [API](#a5)\n - [License](#a6)\n\n<a name=\"a1\"></a>\n## Installation\n\n`npm install nld -g` should do it! This will install nld globally so that you can use `nld ...` in command line like any other program.\n\nIf you plan to embed it inside an application, remove the `-g` flag to install it locally. You can now use `require(\"nld\")` but you can no longer use it from command line.\n\nIf you want both the executable and the library, install it globally and then use `npm link nld` to link the global installation in the local scope.\n\n<a name=\"a2\"></a>\n## Command line usage\n\n`nld <arg or opt>... [-o bundle.ndl]`\n\nArguments and options can be given in any order. Arguments are repeatable, options are intended to be used only once.\n\n<a name=\"a2-1\"></a>\n### Arguments\n\n - `file.js` — Link a js file\n - `-x file.js` — Link a js file as executable, this file will be executed automaticaly when the bundle is itself executed.\n - `-s static.txt` — Link a static text file.\n - `-b foo.bin` — Link a static binary file.\n - `-l bundle.ndl` — Link another nld bundle with this bundle.\n\nArguments files are processed in the following order: `-l > -b > -s > no flag > -x`.\n\nWithin a group, files are processed in the order given in the command line. If a symbol collision occurs, only the last one will be kept and a warning will be printed.\n\nWhen linked with `-l`, bundles are merged together. If you want to link a bundle without merging, link it without flag.\n\n<a name=\"a2-2\"></a>\n### Symbols naming and paths-management\n\nWhen files are linked inside the bundle, nld uses a *symbol name* to distinguish them. In fact, a bundle is simply a collection of symbols. This name can be explicitly specified in command line by using `symbol_name:file_path` as argument.\n\nWith `-l`, this syntax behaves differently: the first-part is used as a *symbol prefix*. A symbol `bar.js` inside `bundle.ndl` linked with `-l foo/:bundle.ndl` will now be called `foo/bar.js`. It's a simple concatenation, so `-l foo:bundle.ndl` will produce `foobar.js`. In contrast to explicit *symbol name*, explicit *symbol prefix* can be empty: `-l :bundle.ndl` will produce `bar.js`.\n\nIf the *symbol name* is missing for a specific file, nld generate a name based on the path of this file. To do so, nld search the longest path common to all linked files, the longest path containing all the files, and then use the relative path of the file from this enclosing path.\n\nExample:\n\n```\n$ pwd            \n/foo/bar/b\n\n$ nld ../a.js b.js -x c/c.js -o d.js\nAbsolute paths:\n    ../a.js -> /foo/bar/a.js\n    b.js    -> /foo/bar/b/b.js\n    c/c.js  -> /foo/bar/b/c/c.js\nCommon path: /foo/bar/\nSo, symbol names:\n    ../a.js -> a.js\n    b.js    -> b/b.js\n    c/c.js  -> b/c/c.js\nOutput is written in: /foo/bar/b/d.js (but is not taken into account in the common path)\n```\n\nWith `-l` (and without explicit prefix), the path to the linked bundle will be taken into account when generating the symbol name. Symbol `foo/bar.js` linked with `-b baz/bundle.ndl` will be named `baz/foo/bar.js`. In fact the default prefix is the path to the bundle. Linking the same bundle with `-l lib/:baz/bundle.ndl` will produce the symbol `lib/foo/bar.js` and not `lib/baz/foo/bar.js`.\n\nAutogenerated symbol names reflect the the directory structure before linking. In fact, they are always generated even if a symbol was explicitly named and are used as a fall back name. If you link a file with `foo:bar/foo.js`, this file will be available as `foo` and `bar/foo.js`.\n\n<a name=\"a2-3\"></a>\n### Options\n\n - `-a [\"node\" | \"generic\" | path]` — Use a specific adapter. The adapter provides required code to use the bundle in a specific environment. You can either specify a built-in adapter or a file path. This file will be loaded as a Node.js module and is expected to export a single function as `module.exports`. This function will be linked with the bundle and executed when loading the bundle.\n - `-c` — Compress JS. Use the JS compressor on input scripts and not only on the bundle itself. This option removes shebang from files.\n - `-d [2 | 3]` — Debug. When debug is used, an indented bundle is generated for debugging purpose. `-d 2` disables the compression and `-d 3` disables reformating (code produced is raw generated code).\n - `-f` — Flat linking, small change with symbol names generation: nld will not care about directories structure and only use the file basename as symbol name. Note: this does not affect the *path-map* that still contains the full original symbol path.\n - `-i [path]` — Interpreter path, prefix the output with a shebang to the specified path and if no path is given to `#!/usr/bin/env node`.\n - `-j join_name` — Join linking, join all arguments together and export an unique symbol with the given name. When join linking is used, `-l -s -b` arguments and `-f` are ignored, and `-x` is now a boolean option used to make the unique joined symbol executable. Linked scripts share a common namespace and are concatenated in the same order than arguments. Compressor, if used, is only run once on the whole resulting script.\n - `-o file` — Output the resulting bundle in the specified file rather than printing it on stdio.\n - `-p [args]` — Passive mode. Sometimes adapter are insufficient to load a bundle in a specific environment. Bundle produced with `-p` take the form of a function declaration and are expected to be `eval`'ed and run by the host script. If `args` are given, the generated function will take `args` as arguments. This flag produces bundle incompatible with nld itself. This flag should not be used except if really necessary.\n - `-q` — Quiet, does not display warnings.\n - `-u` — Unwrapped. By default, the bundle is wrapped inside an anonymous function (`(function(){})()`). Sometimes it can be unnecessary. When this flag is set, `-p` is ignored.\n \n<a name=\"a3\"></a>\n## Additional operations\n\n<a name=\"a3-1\"></a>\n### Dump\n\n`nld --dump bundle.ndl [symbol]`\n\nDump the bundle content. This will print all symbols name, all paths, and the autorun list.\n\nIf a symbol name is given, this will print the symbol value instead. Binary symbols are encoded in Base64 inside the bundle, and it's this encoding that will be printed. If you want the original binary content, you must use `nld --dump bundle.ndl symbol -b`. The `-b` flag should not be used with text symbols (linked without `-b`).\n\n<a name=\"a3-2\"></a>\n### Edit / Convert\n\n`nld --edit bundle.ndl <options...>` or `nld--convert bundle.ndl <options...>`\n\nLoad a bundle and rebuild it. Build options `-a -d -i -o -p -q -u` are available in convert mode.\n\n<a name=\"a4\"></a>\n## Using the bundle\n\nAll these use cases assume that `-a` is not used and that the bundle is a default \"node\" one.\n\n<a name=\"a4-1\"></a>\n### Inside the bundle\n\nInside the bundle, scripts are sandboxed. This sandbox mimics the Node.js one, and replace some Node.js native objects. In theory, most scripts should run without modification inside or outside a nld bundle.\n\n`require()` is replaced by a bundle specific function. When a module is loaded inside a bundle, this function first check if the require'd path is a symbol inside the bundle based on the given path and the caller original path. If it's the case, the module is loaded from the bundle. But if it's not the case, this version of `require` falls back to the native Node.js' `require` and load the module from the outside.\n\nThe `require(module, weak)` function inside the bundle take a additional boolean argument `weak`. If `weak` this function will first try to load the file from the outside, and then from the inside, reversing the default behaviour.\n\n<a name=\"a4-2\"></a>\n### Standalone bundle\n\nBundle are standard javascript files. When executed, the whole bundle contents is loaded at once and then a small function checks for scripts flagged as executable and executes them.\n\nSo if you can `node a.js`, you can `nld -x a.js -o b.ndl && node b.ndl`. And if `a.js` requires `c.js`, you can `nld -x a.js c.js -o b.ndl && node b.ndl`.\n\n<a name=\"a4-3\"></a>\n### Included bundle\n\n`require(\"./bundle.ndl\")`, from a Node.js script, returns the loader function: `__nld(symbol, statically)`. This function load the requested `symbol` and execute it if it's a script (except if `statically` is `true`) and return it. If executed the return value will be `module.exports`, if not it will be the raw symbol value.\n\n```js\nvar bundle = require(\"./bundle.ndl\");\nvar foo = bundle(\"./foo.js\"); // eval foo.js and returns its module.exports\nvar bar = bundle(\"./bar.txt\"); // returns the raw file content from bar.txt\nvar bar = bundle(\"./bar.txt\"); // returns the raw baz.js without evaluation\n\nvar foo = require(\"./bundle.ndl\")(\"./foo.js\"); // like `bundle(\"./foo.js\")`\n```\n\n<a name=\"a5\"></a>\n## API\n\n```js\nvar nld = require(\"nld\");\n\n// Open a bundle\nvar bundle = nld.open(path);\nvar bundle = new nld.Bundle(path);\n\n// Create an empty bundle\nvar bundle = nld.create();\nvar bundle = new nld.Bundle();\n\nbundle.symbol(\"foo\");\n// -> { data: \"...\", path: \"foo.js\", flag: \"x\" }\n\nbundle.symbols();\n// -> [{ data: \"...\", path: \"foo.js\", flag: \"x\" }, ...]\n\nbundle.map();\n// -> { \"foo\": \"foo.js\", ... }\n\nbundle.autoruns();\n// -> [ \"foo\", ... ]\n\nbundle.resolve(\"foo.js\");\nbundle.resolve(\"foo\");\n// -> \"foo\"\nbundle.resolve(\"doesntexists\");\n// -> false\n\nbundle.addSymbol(name, data, path, flag); // This will create map and autorun automatically\nbundle.removeSymbol(name); // This will remove map and autorun automatically\n\nbundle.compile(options); // Returns the compiled bundle as string\nbundle.print(options);\nbundle.write(path, options);\n\nnld.compress(code, options);\n```\n\n<a name=\"a6\"></a>\n## License\n\n(The MIT License)\n\n```\nCopyright (C) 2012 Bastien Clément <g@ledric.me>\n\nPermission is hereby granted, free of charge, to any person obtaining\na copy of this software and associated documentation files (the\n\"Software\"), to deal in the Software without restriction, including\nwithout limitation the rights to use, copy, modify, merge, publish,\ndistribute, sublicense, and/or sell copies of the Software, and to\npermit persons to whom the Software is furnished to do so, subject to\nthe following conditions:\n\nThe above copyright notice and this permission notice shall be included\nin all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND,\nEXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF\nMERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.\nIN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY\nCLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,\nTORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE\nSOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n```\n",
+  "readmeFilename": "README.md",
+  "_id": "nld@0.5.0",
+  "dist": {
+    "shasum": "c508a8635f07b4d959fea80db8b53b882f8272e3"
+  },
+  "_from": "nld@~0.5.0",
+  "_resolved": "https://registry.npmjs.org/nld/-/nld-0.5.0.tgz"
 }
